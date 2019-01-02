@@ -15,17 +15,17 @@ state_size = env.observation_space.n
 # The Q-table is literally just a lookup table (our MDP is finite-state finite-action) over all
 # states and all actions
 qtable = np.zeros((state_size, action_size))
-epochs = 2000
+epochs = 20000
 discount_factor = 0.8
 num_of_steps = 100
-learning_rate = 0.6
+learning_rate = 0.9
 
 # Our policy will be epsilon-greedy, i.e. we will pick a uniformly random number and compare it to a
 # progressively shrinking epsilon, which dictates whether we take a greedy policy or a random-choice policy.
 epsilon = 1.0
 min_epsilon = 0.01
 max_epsilon = 1.0
-decay_rate = 0.05
+decay_rate = 0.005
 
 """
 Now we implement the Q-learning algorithm. As the Q-table is already initialized, we proceed in 3 steps:
