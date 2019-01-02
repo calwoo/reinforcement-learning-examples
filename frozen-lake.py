@@ -24,6 +24,7 @@ learning_rate = 0.6
 # progressively shrinking epsilon, which dictates whether we take a greedy policy or a random-choice policy.
 epsilon = 1.0
 min_epsilon = 0.01
+max_epsilon = 1.0
 decay_rate = 0.05
 
 """
@@ -56,5 +57,42 @@ for episode in range(epochs):
         """
         # Use the Q-learning update rule to update the lookup table. Theoretically, the bellman equation
         # provides the update rule, which is effectively a gradient descent with the "bellman loss function".
-        next_qvalues = []
+        max_next_qvalues = np.max(qtable[new_state,:])
+        update = reward + discount_factor * max_next_qvalues - qtable[state, action]
+        qtable[state, action] += learning_rate * update
+        # Update episodic parameters
+        total_rewards += reward
+        state = new_state
+        # Finish episode if done flag raised
+        if done:
+            break
+    
+    # After episode is over, lower epsilon a bit as lookup table gets better and better and we can rely on
+    # exploiting the greedy policy more.
+    epsilon = min_epsilon + (max_epsilon - min_epsilon) * np.exp(-decay_rate * episode)
+    rewards.append(total_rewards)
+
+"""
+After we've trained our model using the Q-learning algorithm, we use the learned lookup table to play the
+frozenlake game. We'll visualize this game using gym's render tool.
+"""
+env.reset()
+for episode in range(3):
+    state = env.reset()
+    done = False
+    print("Episode %d:" % episode)
+
+    for step in range(num_of_steps):
+        action = np.argmax(qtable[state,:])
+        new_state, reward, done, _ = env.step(action)
+        env.render()
+        if done:
+            print("number of steps: %d" % step)
+            break
+        state = new_state
+
+# Finally, when all is done, close the environment.
+env.close()
+
+
         
