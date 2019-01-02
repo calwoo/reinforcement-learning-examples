@@ -28,4 +28,9 @@ def make_environment():
     game.set_doom_scenario_path("basic.wad")
     game.init()
     # Possible actions our MDP can take
-    
+    left = [1, 0, 0]
+    right = [0, 1, 0]
+    shoot = [0, 0, 1]
+    actions = [left, right, shoot]
+    return game, actions
+
