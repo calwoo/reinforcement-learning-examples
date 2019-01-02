@@ -44,4 +44,17 @@ for episode in range(epochs):
         if prob > epsilon:
             action = np.argmax(qtable[state,:])
         else:
-            
+            action = env.action_space.sample()
+        # Move to new state with action and collect reward
+        new_state, reward, done, info = env.step(action)
+        """
+        The things that env.step(action) returns is:
+        a) The observation, or new state
+        b) Reward for performing action in current state
+        c) A done (boolean) flag to tell us if we reached end goal or not
+        d) Diagnostic data. We usually ignore this, unless for debugging.
+        """
+        # Use the Q-learning update rule to update the lookup table. Theoretically, the bellman equation
+        # provides the update rule, which is effectively a gradient descent with the "bellman loss function".
+        next_qvalues = []
+        
