@@ -12,6 +12,7 @@ import random
 import tensorflow as tf
 from vizdoom import *
 import sklearn
+import time
 from collections import deque
 
 """
