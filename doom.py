@@ -110,4 +110,105 @@ class NatureDQN:
         - fc layer with 512 ReLU units
         - fc output layer with single output for each action
         """
-        
+        self.inputs = tf.placeholder(tf.float32, shape=[None, *self.state_dims])
+        self.actions = tf.placeholder(tf.float32, shape=[None, self.num_actions])
+        # The target is given by the Bellman equation
+        self.target_Q = tf.placeholder(tf.float32, shape=[None])
+        # Start the convolutional layers
+        self.conv1 = tf.layers.conv2d(
+            inputs=self.inputs,
+            filters=32,
+            kernel_size=[8,8],
+            strides=[4,4],
+            padding="valid",
+            kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
+        )
+        self.conv1_bn = tf.layers.batch_normalization(
+            inputs=self.conv1,
+            training=True,
+            epsilon=1e-5
+        )
+        self.conv1_relu = tf.nn.relu(self.conv1_bn)
+        self.conv2 = tf.layers.conv2d(
+            inputs=self.conv1_relu,
+            filters=64,
+            kernel_size=[3,3],
+            strides=[1,1],
+            padding='valid',
+            kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
+        )
+        self.conv2_bn = tf.layers.batch_normalization(
+            inputs = self.conv2,
+            training=True,
+            epsilon=1e-5
+        )
+        self.conv2_relu = tf.nn.relu(self.conv2_bn)
+        self.flatten = tf.layers.flatten(self.conv2_relu)
+        self.fc_layer = tf.layers.dense(
+            inputs=self.flatten,
+            units=512,
+            activation=tf.nn.relu,
+            kernel_initializer=tf.contrib.layers.xavier_initializer()
+        )
+        self.outputs = tf.layers.dense(
+            inputs=self.fc_layer,
+            units=num_actions,
+            activation=None,
+            kernel_initializer=tf.contrib.layers.xavier_initializer()
+        )
+        # Loss and Q-value
+        self.Q_vals = tf.reduce_sum(self.actions * self.outputs, axis=1)
+        self.loss = tf.reduce_mean(tf.square(self.target_Q - self.Q_vals))
+        # Optimizer
+        self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate).minimize(self.loss)
+
+"""
+Experience replay is the following idea: Given the large state space of some environments, it is highly unlikely
+to revisit a scenario multiple times in succession. However, to keep learning from this situation and to prevent
+divergent behavior of the function approximator because of correlated states, we keep a memory bank of 
+"past experiences" and on each training loop, perform the Q-learning update rule on each of these past exps.
+"""
+class Memory:
+    def __init__(self, memory_size):
+        self.memory = deque(maxlen=memory_size)
+        self.memory_size = memory_size
+
+    def add_to_memory(self, experience):
+        self.memory.append(experience)
+    
+    def sample(self, minibatch_size):
+        current_memory_size = len(self.memory)
+        indices = np.random.choice(np.arange(current_memory_size),
+            size=minibatch_size,
+            replace=False)
+        minibatch = [self.memory[i] for i in indices]
+        return minibatch
+    
+    def initialize_memory(self, game, actions):
+        # Clear memory and start over
+        self.memory.clear()
+        game.new_episode()
+        # Create initial batch of experiences via random actions
+        for i in range(minibatch_size):
+            if i == 0:
+                frame = game.get_state().screen_buffer
+                state, frames_queue = create_state(frames_queue, frame, True)
+            action = random.choice(actions)
+            reward = game.make_action(action)
+            done = game.is_episode_finished()
+            if done:
+                next_state = np.zeros(state.shape)
+                self.add_to_memory((state, action, reward, next_state, done))
+                game.new_episode()
+                frame = game.get_state().screen_buffer
+                state, frames_queue = create_state(frames_queue, frame, True)
+            else:
+                next_frame = game.get_state().screen_buffer
+                next_state, frames_queue = create_state(frames_queue, next_frame, False)
+                self.add_to_memory((state, action, reward, next_state, done))
+                state = next_state
+        return state
+
+"""
+Now we train the network.
+"""
