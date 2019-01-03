@@ -98,4 +98,16 @@ update that adjusts the action-values towards target values that ae only periodi
 correlations with the target."
 """
 class NatureDQN:
-    def __init__(self, )
+    def __init__(self, state_dims, num_actions, learning_rate):
+        self.state_dims = state_dims
+        self.num_actions = num_actions
+        self.learning_rate = learning_rate
+        """
+        The network in the Nature 2015 Deepmind article was a convolutional neural network with an 84x84x4 input
+        coming from the preprocessing function, followed by:
+        - conv layer with 32 8x8 filters with stride 4 -> ReLU activation
+        - conv layer with 64 3x3 filters with stride 1 -> ReLU activation
+        - fc layer with 512 ReLU units
+        - fc output layer with single output for each action
+        """
+        
