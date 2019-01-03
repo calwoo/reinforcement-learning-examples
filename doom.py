@@ -218,36 +218,61 @@ memory.initialize_memory(game, actions)
 sess = tf.Session()
 checkpoint = tf.train.Saver() # to save model during training
 
-def train():
-    sess.run(tf.global_variables_initializer())
-    game.init()
 
-    for episode in range(num_episodes):
-        rewards = []
-        decay_counter = 0
-        game.new_episode()
-        frame = game.get_state().screen_buffer
-        state, frame_buffer = create_state(frame_buffer, frame, True)
-        # Play the episode
-        for t in range(num_steps_max):
-            """
-            Epsilon-greedy policy action selection. Then after selection we perform annealing on the epsilon
-            factor to encourage exploitation moreso as our model gets trained.
-            """
-            prob = random.random()
-            exp_factor = np.exp(-epsilon_decay_rate * decay_counter)
-            epsilon = max_epsilon * exp_factor + min_epsilon * (1 - exp_factor)
-            if epsilon > prob:
-                action = random.choice(actions)
-            else:
-                # Compute Q-values via model and take action of highest value
-                Q_values = sess.run(
-                    model.Q_vals,
-                    feed_dict={model.inputs:state.reshape((1,*state.shape))}
-                )
-                action_index = np.argmax(Q_values)
-                action = actions[action_index]
-            """
-            Action is chosen. Run the rest of the network!
-            """
+sess.run(tf.global_variables_initializer())
+game.init()
+
+for episode in range(num_episodes):
+    rewards = []
+    decay_counter = 0
+    game.new_episode()
+    frame = game.get_state().screen_buffer
+    state, frame_buffer = create_state(frame_buffer, frame, True)
+    # Play the episode
+    for t in range(num_steps_max):
+        """
+        Epsilon-greedy policy action selection. Then after selection we perform annealing on the epsilon
+        factor to encourage exploitation moreso as our model gets trained.
+        """
+        prob = random.random()
+        exp_factor = np.exp(-epsilon_decay_rate * decay_counter)
+        epsilon = max_epsilon * exp_factor + min_epsilon * (1 - exp_factor)
+        if epsilon > prob:
+            action = random.choice(actions)
+        else:
+            # Compute Q-values via model and take action of highest value
+            Q_values = sess.run(
+                model.Q_vals,
+                feed_dict={model.inputs:state.reshape((1,*state.shape))}
+            )
+            action_index = np.argmax(Q_values)
+            action = actions[action_index]
+        """
+        Action is chosen. Run the rest of the network!
+        """
+        decay_counter += 1
+        reward = game.make_action(action)
+        done = game.is_episode_finished()
+        rewards.append(reward)
+
+        if done:
+            next_frame = np.zeros((84,84), np.int)
+            next_state, frames_queue = create_state(frames_queue, next_frame, False)
+            episode_reward = np.sum(rewards)
+            print("episode %d: reward = %.4f / loss = %.4f" % (episode, episode_reward, loss))
+        else:
+            next_frame = game.get_state().screen_buffer
+            next_state, frames_queue = create_state(frames_queue, next_frame, False)
+        memory.add_to_memory((state, action, reward, next_state, done))
+        state = next_state
+
+        # Train the network following the Nature article
+        train_batch = memory.sample(minibatch_size)
+
+        # Separate the minibatch of experiences into their component parts
+        train_states = [x[0] for x in train_batch]
+        train_actions = [x[1] for x in train_batch]
+        train_rewards = [x[2] for x in train_batch]
+        
+        
             
