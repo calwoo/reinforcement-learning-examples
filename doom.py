@@ -242,7 +242,7 @@ for episode in range(num_episodes):
         else:
             # Compute Q-values via model and take action of highest value
             Q_values = sess.run(
-                model.Q_vals,
+                model.outputs,
                 feed_dict={model.inputs:state.reshape((1,*state.shape))}
             )
             action_index = np.argmax(Q_values)
@@ -270,9 +270,37 @@ for episode in range(num_episodes):
         train_batch = memory.sample(minibatch_size)
 
         # Separate the minibatch of experiences into their component parts
-        train_states = [x[0] for x in train_batch]
-        train_actions = [x[1] for x in train_batch]
-        train_rewards = [x[2] for x in train_batch]
-        
+        train_states = np.array([x[0] for x in train_batch], ndmin=3)
+        train_actions = np.array([x[1] for x in train_batch])
+        train_rewards = np.array([x[2] for x in train_batch])
+        train_next_states = np.array([x[3] for x in train_batch], ndmin=3)
+        train_dones = np.array([x[4] for x in train_batch])
+
+        Q_targets = []
+        next_state_Q = sess.run(
+            model.outputs,
+            feed_dict={model.inputs: train_next_states}
+        )
+        for i in range(len(train_batch)):
+            if train_dones[i]:
+                # If the episode is done, we just assign for the Q-value its reward
+                Q_targets.append(train_rewards[i])
+            else:
+                bellman_Q = train_rewards[i] + discount_factor * np.max(next_state_Q[i])
+                Q_targets.append(bellman_Q)
+        # Feed targets into DQN and spit out loss
+        loss, _ = sess.run(
+            [model.loss, model.optimizer],
+            feed_dict={
+                model.inputs: train_states,
+                model.actions: train_actions,
+                model.target_Q: np.array(next_state_Q)
+            }
+        )
+
+    # Save point for model. It would really suck if we had to redo this every single time.
+    if episode % 5:
+        path = saver.save(sess, "./models/model.ckpt")
+        print("saved your model for ya, chief.")
         
             
