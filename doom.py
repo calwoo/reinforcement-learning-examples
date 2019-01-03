@@ -207,8 +207,47 @@ class Memory:
                 next_state, frames_queue = create_state(frames_queue, next_frame, False)
                 self.add_to_memory((state, action, reward, next_state, done))
                 state = next_state
-        return state
 
 """
 Now we train the network.
 """
+model = NatureDQN(state_dims, num_actions, learning_rate)
+memory = Memory(memory_size)
+memory.initialize_memory(game, actions)
+
+sess = tf.Session()
+checkpoint = tf.train.Saver() # to save model during training
+
+def train():
+    sess.run(tf.global_variables_initializer())
+    game.init()
+
+    for episode in range(num_episodes):
+        rewards = []
+        decay_counter = 0
+        game.new_episode()
+        frame = game.get_state().screen_buffer
+        state, frame_buffer = create_state(frame_buffer, frame, True)
+        # Play the episode
+        for t in range(num_steps_max):
+            """
+            Epsilon-greedy policy action selection. Then after selection we perform annealing on the epsilon
+            factor to encourage exploitation moreso as our model gets trained.
+            """
+            prob = random.random()
+            exp_factor = np.exp(-epsilon_decay_rate * decay_counter)
+            epsilon = max_epsilon * exp_factor + min_epsilon * (1 - exp_factor)
+            if epsilon > prob:
+                action = random.choice(actions)
+            else:
+                # Compute Q-values via model and take action of highest value
+                Q_values = sess.run(
+                    model.Q_vals,
+                    feed_dict={model.inputs:state.reshape((1,*state.shape))}
+                )
+                action_index = np.argmax(Q_values)
+                action = actions[action_index]
+            """
+            Action is chosen. Run the rest of the network!
+            """
+            
