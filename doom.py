@@ -11,7 +11,7 @@ import gym
 import random
 import tensorflow as tf
 from vizdoom import *
-import sklearn
+import skimage
 import time
 from collections import deque
 
@@ -33,4 +33,16 @@ def make_environment():
     shoot = [0, 0, 1]
     actions = [left, right, shoot]
     return game, actions
+
+game, actions = make_environment()
+
+"""
+To use our deep Q-network, we will preprocess the game frames because they have many undesirable properties as
+they are-- large resolution, color data (the agent doesn't need this). This makes computation faster.
+"""
+def preprocess_frame(frame):
+    crop = frame[30:-10, 30:-10]
+    normalize = crop / 255.0
+    pp_frame = skimage.transform.resize(normalize, [84,84])
+    return pp_frame
 

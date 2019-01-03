@@ -21,7 +21,8 @@ for episode in range(num_episodes):
     while not game.is_episode_finished():
         state = game.get_state()
         vars = state.game_variables
-        reward = game.make_action(choice(actions))
+        action = random.choice(actions)
+        reward = game.make_action(action)
         print("state %d" % state.number)
         print("vars = ", vars)
         print("reward = ", reward)
