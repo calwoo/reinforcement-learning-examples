@@ -184,7 +184,7 @@ class Memory:
         minibatch = [self.memory[i] for i in indices]
         return minibatch
     
-    def initialize_memory(self, game, actions):
+    def initialize_memory(self, game, actions, frames_queue):
         # Clear memory and start over
         self.memory.clear()
         game.new_episode()
@@ -207,100 +207,142 @@ class Memory:
                 next_state, frames_queue = create_state(frames_queue, next_frame, False)
                 self.add_to_memory((state, action, reward, next_state, done))
                 state = next_state
+        return frames_queue
 
 """
 Now we train the network.
 """
 model = NatureDQN(state_dims, num_actions, learning_rate)
 memory = Memory(memory_size)
-memory.initialize_memory(game, actions)
-
+frames_queue = memory.initialize_memory(game, actions, frames_queue)
 sess = tf.Session()
 checkpoint = tf.train.Saver() # to save model during training
-
 
 sess.run(tf.global_variables_initializer())
 game.init()
 
-for episode in range(num_episodes):
-    rewards = []
-    decay_counter = 0
-    game.new_episode()
-    frame = game.get_state().screen_buffer
-    state, frame_buffer = create_state(frame_buffer, frame, True)
-    # Play the episode
-    for t in range(num_steps_max):
-        """
-        Epsilon-greedy policy action selection. Then after selection we perform annealing on the epsilon
-        factor to encourage exploitation moreso as our model gets trained.
-        """
-        prob = random.random()
-        exp_factor = np.exp(-epsilon_decay_rate * decay_counter)
-        epsilon = max_epsilon * exp_factor + min_epsilon * (1 - exp_factor)
-        if epsilon > prob:
-            action = random.choice(actions)
-        else:
-            # Compute Q-values via model and take action of highest value
-            Q_values = sess.run(
-                model.outputs,
-                feed_dict={model.inputs:state.reshape((1,*state.shape))}
-            )
-            action_index = np.argmax(Q_values)
-            action = actions[action_index]
-        """
-        Action is chosen. Run the rest of the network!
-        """
-        decay_counter += 1
-        reward = game.make_action(action)
-        done = game.is_episode_finished()
-        rewards.append(reward)
+# Flag to turn on training or not. If we're just running to evaluate, we should turn this off as we
+# will have model parameters saved for the DQN.
+training_flag = False
 
-        if done:
-            next_frame = np.zeros((84,84), np.int)
-            next_state, frames_queue = create_state(frames_queue, next_frame, False)
-            episode_reward = np.sum(rewards)
-            print("episode %d: reward = %.4f / loss = %.4f" % (episode, episode_reward, loss))
-        else:
-            next_frame = game.get_state().screen_buffer
-            next_state, frames_queue = create_state(frames_queue, next_frame, False)
-        memory.add_to_memory((state, action, reward, next_state, done))
-        state = next_state
-
-        # Train the network following the Nature article
-        train_batch = memory.sample(minibatch_size)
-
-        # Separate the minibatch of experiences into their component parts
-        train_states = np.array([x[0] for x in train_batch], ndmin=3)
-        train_actions = np.array([x[1] for x in train_batch])
-        train_rewards = np.array([x[2] for x in train_batch])
-        train_next_states = np.array([x[3] for x in train_batch], ndmin=3)
-        train_dones = np.array([x[4] for x in train_batch])
-
-        Q_targets = []
-        next_state_Q = sess.run(
-            model.outputs,
-            feed_dict={model.inputs: train_next_states}
-        )
-        for i in range(len(train_batch)):
-            if train_dones[i]:
-                # If the episode is done, we just assign for the Q-value its reward
-                Q_targets.append(train_rewards[i])
+if training_flag:
+    for episode in range(num_episodes):
+        rewards = []
+        decay_counter = 0
+        game.new_episode()
+        frame = game.get_state().screen_buffer
+        state, frames_queue = create_state(frames_queue, frame, True)
+        # Play the episode
+        for t in range(num_steps_max):
+            """
+            Epsilon-greedy policy action selection. Then after selection we perform annealing on the epsilon
+            factor to encourage exploitation moreso as our model gets trained.
+            """
+            prob = random.random()
+            exp_factor = np.exp(-epsilon_decay_rate * decay_counter)
+            epsilon = max_epsilon * exp_factor + min_epsilon * (1 - exp_factor)
+            if epsilon > prob:
+                action = random.choice(actions)
             else:
-                bellman_Q = train_rewards[i] + discount_factor * np.max(next_state_Q[i])
-                Q_targets.append(bellman_Q)
-        # Feed targets into DQN and spit out loss
-        loss, _ = sess.run(
-            [model.loss, model.optimizer],
-            feed_dict={
-                model.inputs: train_states,
-                model.actions: train_actions,
-                model.target_Q: np.array(next_state_Q)
-            }
-        )
+                # Compute Q-values via model and take action of highest value
+                Q_values = sess.run(
+                    model.outputs,
+                    feed_dict={model.inputs:state.reshape((1,*state.shape))}
+                )
+                action_index = np.argmax(Q_values)
+                action = actions[action_index]
+            """
+            Action is chosen. Run the rest of the network!
+            """
+            decay_counter += 1
+            reward = game.make_action(action)
+            done = game.is_episode_finished()
+            rewards.append(reward)
 
-    # Save point for model. It would really suck if we had to redo this every single time.
-    if episode % 5:
-        path = saver.save(sess, "./models/model.ckpt")
-        print("saved your model for ya, chief.")
+            if done:
+                next_frame = np.zeros((84,84), np.int)
+                next_state, frames_queue = create_state(frames_queue, next_frame, False)
+                episode_reward = np.sum(rewards)
+                print("episode %d: reward = %.4f / loss = %.4f" % (episode, episode_reward, loss))
+            else:
+                next_frame = game.get_state().screen_buffer
+                next_state, frames_queue = create_state(frames_queue, next_frame, False)
+            memory.add_to_memory((state, action, reward, next_state, done))
+            state = next_state
+
+            # Train the network following the Nature article
+            train_batch = memory.sample(minibatch_size)
+
+            # Separate the minibatch of experiences into their component parts
+            train_states = np.array([x[0] for x in train_batch], ndmin=3)
+            train_actions = np.array([x[1] for x in train_batch])
+            train_rewards = np.array([x[2] for x in train_batch])
+            train_next_states = np.array([x[3] for x in train_batch], ndmin=3)
+            train_dones = np.array([x[4] for x in train_batch])
+
+            Q_targets = []
+            next_state_Q = sess.run(
+                model.outputs,
+                feed_dict={model.inputs: train_next_states}
+            )
+            for i in range(len(train_batch)):
+                if train_dones[i]:
+                    # If the episode is done, we just assign for the Q-value its reward
+                    Q_targets.append(train_rewards[i])
+                else:
+                    bellman_Q = train_rewards[i] + discount_factor * np.max(next_state_Q[i])
+                    Q_targets.append(bellman_Q)
+            # Feed targets into DQN and spit out loss
+            loss, _ = sess.run(
+                [model.loss, model.optimizer],
+                feed_dict={
+                    model.inputs: train_states,
+                    model.actions: train_actions,
+                    model.target_Q: np.array(Q_targets)
+                }
+            )
+
+            # Don't forget-- if our done flag is tripped, break.
+            if done:
+                break
+
+        # Save point for model. It would really suck if we had to redo this every single time.
+        if episode % 5 == 0:
+            path = checkpoint.save(sess, "./models/model.ckpt")
+            print("saved your model for ya, chief.")
         
-            
+"""
+After training, we'll run the game. This just follows the doom-test.py file, except this time actions are
+determined by the policy governed by the DQN.
+"""
+run_flag = True
+num_test_episodes = 20
+
+if run_flag:
+    game.init()
+    checkpoint.restore(sess, "./models/model.ckpt")
+    # Start the game
+    for i in range(num_test_episodes):
+        game.new_episode()
+        frame = game.get_state().screen_buffer
+        state, frames_queue = create_state(frames_queue, frame, True) 
+        while not game.is_episode_finished():
+            Q_vals = sess.run(
+                model.outputs,
+                feed_dict={model.inputs: state.reshape((1, *state.shape))}
+            )
+            action_index = np.argmax(Q_vals)
+            action = actions[action_index]
+            game.make_action(action)
+
+            done = game.is_episode_finished()
+
+            if done:
+                break
+            else:
+                next_frame = game.get_state().screen_buffer
+                next_state, frames_queue = create_state(frames_queue, next_frame, False)
+                state = next_state
+        score = game.get_total_reward()
+        print("final score is: ", score)
+    game.close()
