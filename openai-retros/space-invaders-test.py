@@ -10,7 +10,12 @@ env = retro.make(game="SpaceInvaders-Atari2600")
 action_size = env.action_space.n
 state_space = env.observation_space
 
-env.reset()
-for _ in range(1000):
+frame = env.reset()
+while True:
+    action = env.action_space.sample()
+    _, _, done, _ = env.step(action)
     env.render()
-    env.step(env.action_space.sample())
+    if done:
+        print("episode end!")
+        break
+env.close()

@@ -11,7 +11,7 @@ from collections import deque
 # Set up environment and preprocessing functions
 env = retro.make(game="SpaceInvaders-Atari2600")
 num_actions = env.action_space.n
-actions = np.identity(num_actions, np.int).tolist()
+actions = np.array(np.identity(num_actions, np.int).tolist())
 
 # STORE HYPERPARAMETERS HERE
 state_dims = [110,84,4]
@@ -180,8 +180,10 @@ if training_flag:
             prob = random.random()
             exp_factor = np.exp(-epsilon_decay_rate * decay_counter)
             epsilon = max_epsilon * exp_factor + min_epsilon * (1 - exp_factor)
-            if epsilon > prob:
-                action = random.choice(actions)
+            """if epsilon > prob:
+                #action = random.choice(actions)
+                action = env.action_space.sample()
+                print("random choice")
             else:
                 # Compute Q-values via model and take action of highest value
                 Q_values = sess.run(
@@ -190,10 +192,13 @@ if training_flag:
                 )
                 action_index = np.argmax(Q_values)
                 action = actions[action_index]
+                print("greedy")
+                print(action)"""
             """
             Action is chosen. Run the rest of the network!
             """
             decay_counter += 1
+            action = env.action_space.sample()
             next_frame, reward, done, _ = env.step(action)
             env.render()
             rewards.append(reward)
