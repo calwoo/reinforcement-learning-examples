@@ -9,11 +9,13 @@ import random
 env = retro.make(game="SpaceInvaders-Atari2600")
 action_size = env.action_space.n
 state_space = env.observation_space
+print(action_size)
 
 frame = env.reset()
 while True:
     action = env.action_space.sample()
-    _, _, done, _ = env.step(action)
+    _, reward, done, _ = env.step(action)
+    print(action, reward)
     env.render()
     if done:
         print("episode end!")

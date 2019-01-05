@@ -11,14 +11,14 @@ from collections import deque
 # Set up environment and preprocessing functions
 env = retro.make(game="SpaceInvaders-Atari2600")
 num_actions = env.action_space.n
-actions = np.array(np.identity(num_actions, np.int).tolist())
+actions = np.array(np.identity(num_actions, dtype=int).tolist())
 
 # STORE HYPERPARAMETERS HERE
 state_dims = [110,84,4]
 frame_stack_size = 4 # as per the Nature article
-num_episodes = 30
-num_steps_max = 100
-minibatch_size = 32
+num_episodes = 50
+num_steps_max = 50000
+minibatch_size = 64
 learning_rate = 0.0005
 discount_factor = 0.95
 max_epsilon = 1.0 # epsilon greedy parameters
@@ -51,7 +51,7 @@ def create_state(frames_queue, current_frame, new_epi_flag=False):
     return state, frames_queue
 
 # Set up DQN
-class NatureDQN:
+class DQN:
     def __init__(self, state_dims, num_actions, learning_rate):
         self.state_dims = state_dims
         self.num_actions = num_actions
@@ -77,27 +77,26 @@ class NatureDQN:
             padding="valid",
             kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
         )
-        self.conv1_bn = tf.layers.batch_normalization(
-            inputs=self.conv1,
-            training=True,
-            epsilon=1e-5
-        )
-        self.conv1_relu = tf.nn.relu(self.conv1_bn)
+        self.conv1_relu = tf.nn.relu(self.conv1)
         self.conv2 = tf.layers.conv2d(
             inputs=self.conv1_relu,
             filters=64,
-            kernel_size=[3,3],
-            strides=[1,1],
+            kernel_size=[4,4],
+            strides=[2,2],
             padding='valid',
             kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
         )
-        self.conv2_bn = tf.layers.batch_normalization(
-            inputs = self.conv2,
-            training=True,
-            epsilon=1e-5
+        self.conv2_relu = tf.nn.relu(self.conv2)
+        self.conv3 = tf.layers.conv2d(
+            inputs=self.conv2_relu,
+            filters=64,
+            kernel_size=[3,3],
+            strides=[2,2],
+            padding='valid',
+            kernel_initializer=tf.contrib.layers.xavier_initializer_conv2d()
         )
-        self.conv2_relu = tf.nn.relu(self.conv2_bn)
-        self.flatten = tf.layers.flatten(self.conv2_relu)
+        self.conv3_relu = tf.nn.relu(self.conv3)
+        self.flatten = tf.layers.flatten(self.conv3_relu)
         self.fc_layer = tf.layers.dense(
             inputs=self.flatten,
             units=512,
@@ -114,7 +113,7 @@ class NatureDQN:
         self.Q_vals = tf.reduce_sum(self.actions * self.outputs, axis=1)
         self.loss = tf.reduce_mean(tf.square(self.target_Q - self.Q_vals))
         # Optimizer
-        self.optimizer = tf.train.RMSPropOptimizer(self.learning_rate).minimize(self.loss)
+        self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
 class Memory:
     def __init__(self, memory_size):
@@ -132,7 +131,7 @@ class Memory:
         minibatch = [self.memory[i] for i in indices]
         return minibatch
     
-    def initialize_memory(self, env, actions, frames_queue):
+    def initialize_memory(self, actions, frames_queue):
         # Clear memory and start over
         self.memory.clear()
         # Create initial batch of experiences via random actions
@@ -140,7 +139,7 @@ class Memory:
             if i == 0:
                 frame = env.reset()
                 state, frames_queue = create_state(frames_queue, frame, True)
-            action = random.choice(actions)
+            action = env.action_space.sample()
             next_frame, reward, done, _ = env.step(action)
             next_state, frames_queue = create_state(frames_queue, next_frame, False)
             if done:
@@ -154,14 +153,13 @@ class Memory:
         return frames_queue
 
 # Now we train the network
-model = NatureDQN(state_dims, num_actions, learning_rate)
+model = DQN(state_dims, num_actions, learning_rate)
 memory = Memory(memory_size)
-frames_queue = memory.initialize_memory(env, actions, frames_queue)
+frames_queue = memory.initialize_memory(actions, frames_queue)
 sess = tf.Session()
 checkpoint = tf.train.Saver()
 
 sess.run(tf.global_variables_initializer())
-env.reset()
 
 training_flag = True
 
@@ -180,10 +178,9 @@ if training_flag:
             prob = random.random()
             exp_factor = np.exp(-epsilon_decay_rate * decay_counter)
             epsilon = max_epsilon * exp_factor + min_epsilon * (1 - exp_factor)
-            """if epsilon > prob:
-                #action = random.choice(actions)
-                action = env.action_space.sample()
-                print("random choice")
+            if epsilon > prob:
+                action = random.choice(actions)
+                # action = env.action_space.sample()
             else:
                 # Compute Q-values via model and take action of highest value
                 Q_values = sess.run(
@@ -192,13 +189,12 @@ if training_flag:
                 )
                 action_index = np.argmax(Q_values)
                 action = actions[action_index]
-                print("greedy")
-                print(action)"""
             """
             Action is chosen. Run the rest of the network!
             """
+            
             decay_counter += 1
-            action = env.action_space.sample()
+            # action = env.action_space.sample()
             next_frame, reward, done, _ = env.step(action)
             env.render()
             rewards.append(reward)
@@ -215,7 +211,7 @@ if training_flag:
 
             # Train the network following the Nature article
             train_batch = memory.sample(minibatch_size)
-
+            
             # Separate the minibatch of experiences into their component parts
             train_states = np.array([x[0] for x in train_batch], ndmin=3)
             train_actions = np.array([x[1] for x in train_batch])
@@ -236,19 +232,19 @@ if training_flag:
                     bellman_Q = train_rewards[i] + discount_factor * np.max(next_state_Q[i])
                     Q_targets.append(bellman_Q)
             # Feed targets into DQN and spit out loss
+            Q_targets = np.array(Q_targets)
             loss, _ = sess.run(
                 [model.loss, model.optimizer],
                 feed_dict={
                     model.inputs: train_states,
                     model.actions: train_actions,
-                    model.target_Q: np.array(Q_targets)
+                    model.target_Q: Q_targets
                 }
             )
-
             # Don't forget-- if our done flag is tripped, break.
             if done:
                 break
-
+            
         # Save point for model. It would really suck if we had to redo this every single time.
         if episode % 5 == 0:
             path = checkpoint.save(sess, "./models/model.ckpt")
