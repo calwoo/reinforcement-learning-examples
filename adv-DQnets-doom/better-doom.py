@@ -19,20 +19,24 @@ replay mechanic. First we import all the boilerplate related to running the Doom
 # The vizdoom library allows us to get a game working with configuration and scenario files.
 def make_environment():
     game = DoomGame()
-    game.load_config("basic.cfg")
-    game.set_doom_scenario_path("basic.wad")
+    game.load_config("deadly_corridor.cfg")
+    game.set_doom_scenario_path("deadly_corridor.wad")
     game.init()
     # Possible actions our MDP can take
-    left = [1, 0, 0]
-    right = [0, 1, 0]
-    shoot = [0, 0, 1]
-    actions = [left, right, shoot]
+    left = [1, 0, 0, 0, 0, 0, 0]
+    right = [0, 1, 0, 0, 0, 0, 0]
+    shoot = [0, 0, 1, 0, 0, 0, 0]
+    forward = [0, 0, 0, 1, 0, 0, 0]
+    backward = [0, 0, 0, 0, 1, 0, 0]
+    turn_left = [0, 0, 0, 0, 0, 1, 0]
+    turn_right = [0, 0, 0, 0, 0, 0, 1]
+    actions = [left, right, shoot, forward, backward, turn_left, turn_right]
     return game, actions
 
 game, actions = make_environment()
 
 # STORE HYPERPARAMETERS HERE
-state_dims = [84,84,4]
+state_dims = [100,120,4]
 frame_stack_size = 4 # as per the Nature article
 num_actions = game.get_available_buttons_size()
 num_episodes = 200
@@ -50,9 +54,9 @@ To use our deep Q-network, we will preprocess the game frames because they have 
 they are-- large resolution, color data (the agent doesn't need this). This makes computation faster.
 """
 def preprocess_frame(frame):
-    crop = frame[30:-10, 30:-10]
-    normalize = crop / 255.0
-    pp_frame = skimage.transform.resize(normalize, [84,84])
+    cropped_frame = frame[15:-5, 20:-20]
+    normalized_frame = cropped_frame / 255.0
+    pp_frame = skimage.transform.resize(normalized_frame, [100,120])
     return pp_frame
 
 """
@@ -60,13 +64,13 @@ Our states will follow the outline in the 2015 Nature article on DQN by Google D
 frames as states (ie, bundles of consecutive frames). This is necessary, as without this the network could not
 learn the motion of enemies and (later) projectiles.
 """
-frames_queue = deque([np.zeros((84,84), dtype=np.int) for _ in range(frame_stack_size)], 
+frames_queue = deque([np.zeros((100,120), dtype=np.int) for _ in range(frame_stack_size)], 
     maxlen=frame_stack_size)
 def create_state(frames_queue, current_frame, new_epi_flag=False):
     frame = preprocess_frame(current_frame)
     # If new episode, restart the frames_queue with the current frame
     if new_epi_flag:
-        frames_queue = deque([np.zeros((84,84), dtype=np.int) for _ in range(frame_stack_size)], 
+        frames_queue = deque([np.zeros((100,120), dtype=np.int) for _ in range(frame_stack_size)], 
             maxlen=frame_stack_size)
         for _ in range(frame_stack_size):
             frames_queue.append(frame)
@@ -167,8 +171,11 @@ class DDQN:
             tf.reduce_mean(self.advantage_output, axis=1, keepdims=True)
         )
 
+        # Loss and absolute error for use in PER.
+        self.error = tf.abs(self.Q_values - self.target_Q)
         self.loss = tf.reduce_mean(tf.square(self.target_Q - self.Q_values))
         # Optimizer
+        self.ISweight = tf.placeholder(tf.float32, shape=[None, 1])
         self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
 """
@@ -179,6 +186,29 @@ meaning that it takes many more samples to learn and the variance of samples is 
 PER fixes this by changing the sampling distribution. The slogan is that we want to sample experience with a large
 difference between our prediction and the TD target, as those are the experiences that give us a lot to learn.
 """
+class SumTree:
+    # Data structure like a binary tree where nodes are sum of leaves. Implemented as array.
+    data_index = 0
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.tree = np.zeros(2 * capacity - 1)
+        self.data = np.zeros(capacity)
+
+    def add(self, priority, data):
+        index = self.capacity - 1 + data_index
+        self.data[data_index] = data
+        self.update(index, priority)
+        data_index += 1
+        if data_index == capacity:
+            data_index = 0
+
+    def update(self, index, priority):
+        pass
+
+
+
+
+
 class Memory:
     def __init__(self, memory_size):
         self.memory = deque(maxlen=memory_size)
