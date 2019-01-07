@@ -203,11 +203,32 @@ class SumTree:
             data_index = 0
 
     def update(self, index, priority):
-        pass
+        delta = priority - self.tree[index]
+        self.tree[index] = priority
+        while index != 0:
+            index = (index - 1) // 2
+            self.tree[index] += delta
 
+    def get_leaf(self, v):
+        parent = 0
+        while True:
+            # If at leaf, terminate
+            if parent >= self.capacity:
+                leaf_ind = parent
+                break
+            left_child = parent * 2 + 1
+            right_child = left_child + 1
+            # Descend.
+            if self.tree[left_child] < v:
+                parent = right_child
+                v -= self.tree[left_child]
+            else:
+                parent = left_child
+        data_ind = leaf_ind - (self.capacity - 1)
+        return leaf_ind, self.tree[leaf_ind], self.data[data_ind]
 
-
-
+    def total_priority(self):
+        return self.tree[0]
 
 class Memory:
     def __init__(self, memory_size):
