@@ -5,6 +5,10 @@ from vizdoom import *
 import skimage
 import time
 from collections import deque
+import warnings
+
+# Ignore warnings
+warnings.filterwarnings("ignore")
 
 """
 We're gonna upgrade the DQN with some extra upgrades so it performs better on environments with more temporally-sparse rewards.
@@ -173,4 +177,45 @@ is that more important experiences are given the same probabilistic chance of oc
 meaning that it takes many more samples to learn and the variance of samples is high.
 
 PER fixes this by changing the sampling distribution. The slogan is that we want to sample experience with a large
-difference between our prediction and the TD target
+difference between our prediction and the TD target, as those are the experiences that give us a lot to learn.
+"""
+class Memory:
+    def __init__(self, memory_size):
+        self.memory = deque(maxlen=memory_size)
+        self.memory_size = memory_size
+
+    def add_to_memory(self, experience):
+        self.memory.append(experience)
+    
+    def sample(self, minibatch_size):
+        current_memory_size = len(self.memory)
+        indices = np.random.choice(np.arange(current_memory_size),
+            size=minibatch_size,
+            replace=False)
+        minibatch = [self.memory[i] for i in indices]
+        return minibatch
+    
+    def initialize_memory(self, game, actions, frames_queue):
+        # Clear memory and start over
+        self.memory.clear()
+        game.new_episode()
+        # Create initial batch of experiences via random actions
+        for i in range(minibatch_size):
+            if i == 0:
+                frame = game.get_state().screen_buffer
+                state, frames_queue = create_state(frames_queue, frame, True)
+            action = random.choice(actions)
+            reward = game.make_action(action)
+            done = game.is_episode_finished()
+            if done:
+                next_state = np.zeros(state.shape)
+                self.add_to_memory((state, action, reward, next_state, done))
+                game.new_episode()
+                frame = game.get_state().screen_buffer
+                state, frames_queue = create_state(frames_queue, frame, True)
+            else:
+                next_frame = game.get_state().screen_buffer
+                next_state, frames_queue = create_state(frames_queue, next_frame, False)
+                self.add_to_memory((state, action, reward, next_state, done))
+                state = next_state
+        return frames_queue
