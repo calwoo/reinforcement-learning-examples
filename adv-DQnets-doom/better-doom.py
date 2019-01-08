@@ -48,7 +48,7 @@ discount_factor = 0.95
 max_epsilon = 1.0 # epsilon greedy parameters
 min_epsilon = 0.01
 epsilon_decay_rate = 0.0001
-memory_size = 100000 # memory size from Nature article for experience replay
+memory_size = 20000 # memory size from Nature article for experience replay
 transfer_max = 10000
 
 """
