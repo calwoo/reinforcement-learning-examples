@@ -39,15 +39,15 @@ game, actions = make_environment()
 state_dims = [100,120,4]
 frame_stack_size = 4 # as per the Nature article
 num_actions = game.get_available_buttons_size()
-num_episodes = 200
-num_steps_max = 100
-minibatch_size = 32
+num_episodes = 3000
+num_steps_max = 4000
+minibatch_size = 64
 learning_rate = 0.0005
 discount_factor = 0.95
 max_epsilon = 1.0 # epsilon greedy parameters
 min_epsilon = 0.01
 epsilon_decay_rate = 0.0001
-memory_size = 1000000 # memory size from Nature article for experience replay
+memory_size = 100000 # memory size from Nature article for experience replay
 transfer_max = 10000
 
 """
@@ -177,10 +177,10 @@ class DDQN:
             self.Q_values = tf.reduce_sum(tf.multiply(self.output, self.actions), axis=1)
 
             # Loss and absolute error for use in PER.
+            self.ISweight = tf.placeholder(tf.float32, shape=[None, 1])
             self.error = tf.abs(self.Q_values - self.target_Q)
             self.loss = tf.reduce_mean(self.ISweight * tf.square(self.target_Q - self.Q_values))
             # Optimizer
-            self.ISweight = tf.placeholder(tf.float32, shape=[None, 1])
             self.optimizer = tf.train.AdamOptimizer(self.learning_rate).minimize(self.loss)
 
 """
@@ -197,15 +197,15 @@ class SumTree:
     def __init__(self, capacity):
         self.capacity = capacity
         self.tree = np.zeros(2 * capacity - 1)
-        self.data = np.zeros(capacity)
+        self.data = np.zeros(capacity, dtype=object)
 
     def add(self, priority, data):
-        index = self.capacity - 1 + data_index
-        self.data[data_index] = data
+        index = self.capacity - 1 + self.data_index
+        self.data[self.data_index] = data
         self.update(index, priority)
-        data_index += 1
-        if data_index == capacity:
-            data_index = 0
+        self.data_index += 1
+        if self.data_index == self.capacity:
+            self.data_index = 0
 
     def update(self, index, priority):
         delta = priority - self.tree[index]
@@ -218,7 +218,7 @@ class SumTree:
         parent = 0
         while True:
             # If at leaf, terminate
-            if parent >= self.capacity:
+            if parent >= self.capacity - 1:
                 leaf_ind = parent
                 break
             left_child = parent * 2 + 1
@@ -252,7 +252,7 @@ class Memory:
         # when we sample it again using the TD error)
         max_priority = np.max(self.memory.tree[self.memory_size:])
         if max_priority == 0:
-            max_priority = lowest_error
+            max_priority = self.lowest_error
         self.memory.add(max_priority, experience)
 
     def sample(self, minibatch_size):
@@ -265,32 +265,32 @@ class Memory:
         batch_ISweights = np.empty((minibatch_size, 1), dtype=np.float32)
         priority_seg = self.memory.total_priority() / minibatch_size
         # Perform linear annealing for beta
-        PER_beta = np.min(1, PER_beta + PER_beta_annealing)
+        self.PER_beta = np.minimum(1.0, self.PER_beta + self.PER_beta_annealing)
         # Max weight for IS update
         min_prob = np.min(self.memory.tree[self.memory_size:]) / self.memory.total_priority()
-        max_weight = np.power((min_prob * self.memory_size), -PER_beta)
+        max_weight = np.power((min_prob * self.memory_size), -self.PER_beta)
         # Sample the minibatch
         for i in range(minibatch_size):
             top, bottom = priority_seg * i, priority_seg * (i+1)
             v = np.random.uniform(top, bottom)
             leaf_ind, priority, exp = self.memory.get_leaf(v) 
-            IS_prob = priorty / self.memory.total_priority()
-            batch_ISweights[i,0] = np.power((IS_prob * minibatch_size), -PER_beta) / max_weight
-            batch_ids[i] = leaf_index
+            IS_prob = priority / self.memory.total_priority()
+            batch_ISweights[i,0] = np.power((IS_prob * minibatch_size), -self.PER_beta) / max_weight
+            batch_ids[i] = leaf_ind
             minibatch.append(exp)
         return minibatch, batch_ids, batch_ISweights
 
     def update_memory(self, ids, deltas):
-        deltas += PER_epsilon
-        deltas = np.minimum(deltas, lowest_error)
-        new_priorities = np.power(deltas, PER_alpha)
+        deltas += self.PER_epsilon
+        deltas = np.minimum(deltas, self.lowest_error)
+        new_priorities = np.power(deltas, self.PER_alpha)
         for i, p in zip(ids, new_priorities):
             self.memory.update(i, p)
 
     def initialize_memory(self, game, actions, frames_queue):
         game.new_episode()
         # Create initial batch of experience via random actions
-        for i in range(minibatch_size):
+        for i in range(self.memory_size):
             if i == 0:
                 frame = game.get_state().screen_buffer
                 state, frames_queue = create_state(frames_queue, frame, True)
@@ -337,7 +337,7 @@ def update_tf_graph():
         op_holder.append(to_var.assign(from_var))
     return op_holder
 
-update_target = update_target_graph()
+update_target = update_tf_graph()
 sess.run(update_target)
 
 # Flag to turn on training or not. If we're just running to evaluate, we should turn this off as we
@@ -366,8 +366,8 @@ if training_flag:
             else:
                 # Compute Q-values via model and take action of highest value
                 Q_values = sess.run(
-                    model.output,
-                    feed_dict={model.inputs: state.reshape((1,*state.shape))}
+                    model_net.output,
+                    feed_dict={model_net.inputs: state.reshape((1,*state.shape))}
                 )
                 action_index = np.argmax(Q_values)
                 action = actions[action_index]
@@ -382,8 +382,6 @@ if training_flag:
             if done:
                 next_frame = np.zeros((100,120), np.int)
                 next_state, frames_queue = create_state(frames_queue, next_frame, False)
-                episode_reward = np.sum(rewards)
-                print("episode %d: reward = %.4f / loss = %.4f" % (episode, episode_reward, loss))
             else:
                 next_frame = game.get_state().screen_buffer
                 next_state, frames_queue = create_state(frames_queue, next_frame, False)
@@ -408,11 +406,11 @@ if training_flag:
                 3) After some steps, transfer parameters for the model to the target network.
             """
             next_state_Q = sess.run(
-                model.outputs,
-                feed_dict={model.inputs: train_next_states}
+                model_net.output,
+                feed_dict={model_net.inputs: train_next_states}
             )
             next_state_Q_targets = sess.run(
-                target_net.outputs,
+                target_net.output,
                 feed_dict={target_net.inputs: train_next_states}
             )
             transfer_counter += 1
@@ -426,12 +424,12 @@ if training_flag:
                     Q_targets.append(target)
             # Feed targets into DQN and spit out loss
             loss, _, deltas = sess.run(
-                [model.loss, model.optimizer, model.error],
+                [model_net.loss, model_net.optimizer, model_net.error],
                 feed_dict={
-                    model.inputs: train_states,
-                    model.actions: train_actions,
-                    model.target_Q: np.array(Q_targets),
-                    model.ISweight: train_batch_ISweights
+                    model_net.inputs: train_states,
+                    model_net.actions: train_actions,
+                    model_net.target_Q: np.array(Q_targets),
+                    model_net.ISweight: train_batch_ISweights
                 }
             )
 
@@ -448,6 +446,10 @@ if training_flag:
             # Don't forget-- if our done flag is tripped, break.
             if done:
                 break
+        
+        # Print episode info at end.
+        episode_reward = np.sum(rewards)
+        print("episode %d: reward = %.4f / loss = %.4f" % (episode, episode_reward, loss))
 
         # Save point for model. It would really suck if we had to redo this every single time.
         if episode % 5 == 0:
@@ -470,8 +472,8 @@ if run_flag:
         state, frames_queue = create_state(frames_queue, frame, True) 
         while not game.is_episode_finished():
             Q_vals = sess.run(
-                model.outputs,
-                feed_dict={model.inputs: state.reshape((1, *state.shape))}
+                model_net.outputs,
+                feed_dict={model_net.inputs: state.reshape((1, *state.shape))}
             )
             action_index = np.argmax(Q_vals)
             action = actions[action_index]
