@@ -6,6 +6,7 @@ import skimage
 import time
 from collections import deque
 import warnings
+from progress.bar import Bar
 
 # Ignore warnings
 warnings.filterwarnings("ignore")
@@ -289,6 +290,8 @@ class Memory:
 
     def initialize_memory(self, game, actions, frames_queue):
         game.new_episode()
+        # Progress bar
+        bar = Bar("Initializing memory...", max=self.memory_size)
         # Create initial batch of experience via random actions
         for i in range(self.memory_size):
             if i == 0:
@@ -308,6 +311,8 @@ class Memory:
                 next_state, frames_queue = create_state(frames_queue, next_frame, False)
                 self.add_to_memory((state, action, reward, next_state, done))
                 state = next_state
+            bar.next()
+        bar.finish()
         return frames_queue
 
 """
