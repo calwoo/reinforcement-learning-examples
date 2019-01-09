@@ -3,11 +3,11 @@ import gym
 import tensorflow as tf 
 import random
 
-env = gym.make("CartPole-v0")
-env._max_episode_steps = 100000
+env = gym.make("MountainCar-v0")
+env._max_episode_steps = 1000
 
 # hyperparameters
-state_size = 4
+state_size = 2
 action_size = env.action_space.n
 num_episodes = 10000
 learning_rate = 0.05
